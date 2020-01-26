@@ -207,7 +207,7 @@ class _NaverMapState extends State<NaverMap> {
     _markers = _keyByMarkerId(widget.markers);
   }
 
-  Future<void> androidViewCreated(int id) async {
+  Future<void> onPlatformViewCreated(int id) async {
     final NaverMapController controller = await NaverMapController.init(
       id,
       widget.initialCameraPosition,
@@ -233,7 +233,7 @@ class _NaverMapState extends State<NaverMap> {
     if (defaultTargetPlatform == TargetPlatform.android) {
       AndroidView view = AndroidView(
         viewType: VIEW_TYPE,
-        onPlatformViewCreated: androidViewCreated,
+        onPlatformViewCreated: onPlatformViewCreated,
         creationParams: createParams,
         creationParamsCodec: const StandardMessageCodec(),
       );
@@ -241,10 +241,12 @@ class _NaverMapState extends State<NaverMap> {
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       UiKitView view = UiKitView(
         viewType: VIEW_TYPE,
-        onPlatformViewCreated: iosViewCreated,
+        onPlatformViewCreated: onPlatformViewCreated,
         creationParams: createParams,
         creationParamsCodec: const StandardMessageCodec(),
       );
+
+      return view;
     }
 
     return Text(

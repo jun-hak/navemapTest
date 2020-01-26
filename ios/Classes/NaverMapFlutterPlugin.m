@@ -1,6 +1,11 @@
 #import "NaverMapFlutterPlugin.h"
 
-@implementation NaverMapFlutterPlugin
+@implementation NaverMapFlutterPlugin{
+
+  NSObject<FlutterPluginRegistrar>* _registrar;
+  FlutterMethodChannel* _channel;
+  NSMutableDictionary* _mapControllers;
+}
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
   FlutterMethodChannel* channel = [FlutterMethodChannel
       methodChannelWithName:@"naver_map_flutter"
