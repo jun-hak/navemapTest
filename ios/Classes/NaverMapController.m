@@ -5,18 +5,21 @@
 
 #pragma mark - Conversion of JSON-like values sent via platform channels. Forward declarations.
 
-static NSDictionary* PositionToJson(GMSCameraPosition* position);
+// GMSCoordinateBounds -> NMGLatLng
+// GMSCameraPosition -> NMFCameraPosition
+// GMSCameraUpdate -> NMFCameraUpdate
+static NSDictionary* PositionToJson(NMFCameraUpdate* position);
 static NSDictionary* PointToJson(CGPoint point);
-static NSArray* LocationToJson(CLLocationCoordinate2D position);
+static NSArray* LocationToJson(CLLocationCoordinate2D  position);
 static CGPoint ToCGPoint(NSDictionary* json);
-static GMSCameraPosition* ToOptionalCameraPosition(NSDictionary* json);
-static GMSCoordinateBounds* ToOptionalBounds(NSArray* json);
-static GMSCameraUpdate* ToCameraUpdate(NSArray* data);
-static NSDictionary* GMSCoordinateBoundsToJson(GMSCoordinateBounds* bounds);
-static void InterpretMapOptions(NSDictionary* data, id<FLTGoogleMapOptionsSink> sink);
-static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toDouble:data]; }
+static NMFCameraUpdate* ToOptionalCameraPosition(NSDictionary* json);
+static NMGBounds* ToOptionalBounds(NSArray* json);
+static NMFCameraUpdate* ToCameraUpdate(NSArray* data);
+static NSDictionary* NMGBoundsToJson(NMGBounds* bounds);
+static void InterpretMapOptions(NSDictionary* data, id<FLTNaverMapOptionsSink> sink);
+static double ToDouble(NSNumber* data) { return [FLTNaverMapJsonConversions toDouble:data]; }
 
-@implementation FLTGoogleMapFactory {
+@implementation FLTNaverMapFactory {
   NSObject<FlutterPluginRegistrar>* _registrar;
 }
 
@@ -35,15 +38,15 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
 - (NSObject<FlutterPlatformView>*)createWithFrame:(CGRect)frame
                                    viewIdentifier:(int64_t)viewId
                                         arguments:(id _Nullable)args {
-  return [[FLTGoogleMapController alloc] initWithFrame:frame
+  return [[FLTNaverMapController alloc] initWithFrame:frame
                                         viewIdentifier:viewId
                                              arguments:args
                                              registrar:_registrar];
 }
 @end
 
-@implementation FLTGoogleMapController {
-  GMSMapView* _mapView;
+@implementation FLTNaverMapController {
+  NMFMapView* _mapView;
   int64_t _viewId;
   FlutterMethodChannel* _channel;
   BOOL _trackCameraPosition;
@@ -54,9 +57,9 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   // https://github.com/flutter/flutter/issues/27550
   BOOL _cameraDidInitialSetup;
   FLTMarkersController* _markersController;
-  FLTPolygonsController* _polygonsController;
-  FLTPolylinesController* _polylinesController;
-  FLTCirclesController* _circlesController;
+  // FLTPolygonsController* _polygonsController;
+  // FLTPolylinesController* _polylinesController;
+  // FLTCirclesController* _circlesController;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -66,13 +69,13 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   if (self = [super init]) {
     _viewId = viewId;
 
-    GMSCameraPosition* camera = ToOptionalCameraPosition(args[@"initialCameraPosition"]);
-    _mapView = [GMSMapView mapWithFrame:frame camera:camera];
+    NMFCameraUpdate* camera = ToOptionalCameraPosition(args[@"initialCameraPosition"]);
+    _mapView = [NMFMapView mapWithFrame:frame camera:camera];
     _mapView.accessibilityElementsHidden = NO;
     _trackCameraPosition = NO;
     InterpretMapOptions(args[@"options"], self);
     NSString* channelName =
-        [NSString stringWithFormat:@"plugins.flutter.io/google_maps_%lld", viewId];
+        [NSString stringWithFormat:@"flutter_naver_map_%lld", viewId];
     _channel = [FlutterMethodChannel methodChannelWithName:channelName
                                            binaryMessenger:registrar.messenger];
     __weak __typeof__(self) weakSelf = self;
@@ -87,30 +90,9 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
     _markersController = [[FLTMarkersController alloc] init:_channel
                                                     mapView:_mapView
                                                   registrar:registrar];
-    _polygonsController = [[FLTPolygonsController alloc] init:_channel
-                                                      mapView:_mapView
-                                                    registrar:registrar];
-    _polylinesController = [[FLTPolylinesController alloc] init:_channel
-                                                        mapView:_mapView
-                                                      registrar:registrar];
-    _circlesController = [[FLTCirclesController alloc] init:_channel
-                                                    mapView:_mapView
-                                                  registrar:registrar];
     id markersToAdd = args[@"markersToAdd"];
     if ([markersToAdd isKindOfClass:[NSArray class]]) {
       [_markersController addMarkers:markersToAdd];
-    }
-    id polygonsToAdd = args[@"polygonsToAdd"];
-    if ([polygonsToAdd isKindOfClass:[NSArray class]]) {
-      [_polygonsController addPolygons:polygonsToAdd];
-    }
-    id polylinesToAdd = args[@"polylinesToAdd"];
-    if ([polylinesToAdd isKindOfClass:[NSArray class]]) {
-      [_polylinesController addPolylines:polylinesToAdd];
-    }
-    id circlesToAdd = args[@"circlesToAdd"];
-    if ([circlesToAdd isKindOfClass:[NSArray class]]) {
-      [_circlesController addCircles:circlesToAdd];
     }
   }
   return self;
@@ -121,16 +103,7 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
 }
 
 - (void)onMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-  if ([call.method isEqualToString:@"map#show"]) {
-    [self showAtX:ToDouble(call.arguments[@"x"]) Y:ToDouble(call.arguments[@"y"])];
-    result(nil);
-  } else if ([call.method isEqualToString:@"map#hide"]) {
-    [self hide];
-    result(nil);
-  } else if ([call.method isEqualToString:@"camera#animate"]) {
-    [self animateWithCameraUpdate:ToCameraUpdate(call.arguments[@"cameraUpdate"])];
-    result(nil);
-  } else if ([call.method isEqualToString:@"camera#move"]) {
+  if ([call.method isEqualToString:@"camera#move"]) {
     [self moveWithCameraUpdate:ToCameraUpdate(call.arguments[@"cameraUpdate"])];
     result(nil);
   } else if ([call.method isEqualToString:@"map#update"]) {
@@ -139,35 +112,15 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   } else if ([call.method isEqualToString:@"map#getVisibleRegion"]) {
     if (_mapView != nil) {
       GMSVisibleRegion visibleRegion = _mapView.projection.visibleRegion;
-      GMSCoordinateBounds* bounds = [[GMSCoordinateBounds alloc] initWithRegion:visibleRegion];
+      NMGLatLngBounds* bounds = [[NMGLatLngBounds alloc] initWithRegion:visibleRegion];
 
-      result(GMSCoordinateBoundsToJson(bounds));
+      result(NMGLatLngBoundsToJson(bounds));
     } else {
-      result([FlutterError errorWithCode:@"GoogleMap uninitialized"
+      result([FlutterError errorWithCode:@"Naver uninitialized"
                                  message:@"getVisibleRegion called prior to map initialization"
                                  details:nil]);
     }
-  } else if ([call.method isEqualToString:@"map#getScreenCoordinate"]) {
-    if (_mapView != nil) {
-      CLLocationCoordinate2D location = [FLTGoogleMapJsonConversions toLocation:call.arguments];
-      CGPoint point = [_mapView.projection pointForCoordinate:location];
-      result(PointToJson(point));
-    } else {
-      result([FlutterError errorWithCode:@"GoogleMap uninitialized"
-                                 message:@"getScreenCoordinate called prior to map initialization"
-                                 details:nil]);
-    }
-  } else if ([call.method isEqualToString:@"map#getLatLng"]) {
-    if (_mapView != nil && call.arguments) {
-      CGPoint point = ToCGPoint(call.arguments);
-      CLLocationCoordinate2D latlng = [_mapView.projection coordinateForPoint:point];
-      result(LocationToJson(latlng));
-    } else {
-      result([FlutterError errorWithCode:@"GoogleMap uninitialized"
-                                 message:@"getLatLng called prior to map initialization"
-                                 details:nil]);
-    }
-  } else if ([call.method isEqualToString:@"map#waitForMap"]) {
+  }  else if ([call.method isEqualToString:@"map#waitForMap"]) {
     result(nil);
   } else if ([call.method isEqualToString:@"markers#update"]) {
     id markersToAdd = call.arguments[@"markersToAdd"];
@@ -183,110 +136,17 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
       [_markersController removeMarkerIds:markerIdsToRemove];
     }
     result(nil);
-  } else if ([call.method isEqualToString:@"polygons#update"]) {
-    id polygonsToAdd = call.arguments[@"polygonsToAdd"];
-    if ([polygonsToAdd isKindOfClass:[NSArray class]]) {
-      [_polygonsController addPolygons:polygonsToAdd];
-    }
-    id polygonsToChange = call.arguments[@"polygonsToChange"];
-    if ([polygonsToChange isKindOfClass:[NSArray class]]) {
-      [_polygonsController changePolygons:polygonsToChange];
-    }
-    id polygonIdsToRemove = call.arguments[@"polygonIdsToRemove"];
-    if ([polygonIdsToRemove isKindOfClass:[NSArray class]]) {
-      [_polygonsController removePolygonIds:polygonIdsToRemove];
-    }
-    result(nil);
-  } else if ([call.method isEqualToString:@"polylines#update"]) {
-    id polylinesToAdd = call.arguments[@"polylinesToAdd"];
-    if ([polylinesToAdd isKindOfClass:[NSArray class]]) {
-      [_polylinesController addPolylines:polylinesToAdd];
-    }
-    id polylinesToChange = call.arguments[@"polylinesToChange"];
-    if ([polylinesToChange isKindOfClass:[NSArray class]]) {
-      [_polylinesController changePolylines:polylinesToChange];
-    }
-    id polylineIdsToRemove = call.arguments[@"polylineIdsToRemove"];
-    if ([polylineIdsToRemove isKindOfClass:[NSArray class]]) {
-      [_polylinesController removePolylineIds:polylineIdsToRemove];
-    }
-    result(nil);
-  } else if ([call.method isEqualToString:@"circles#update"]) {
-    id circlesToAdd = call.arguments[@"circlesToAdd"];
-    if ([circlesToAdd isKindOfClass:[NSArray class]]) {
-      [_circlesController addCircles:circlesToAdd];
-    }
-    id circlesToChange = call.arguments[@"circlesToChange"];
-    if ([circlesToChange isKindOfClass:[NSArray class]]) {
-      [_circlesController changeCircles:circlesToChange];
-    }
-    id circleIdsToRemove = call.arguments[@"circleIdsToRemove"];
-    if ([circleIdsToRemove isKindOfClass:[NSArray class]]) {
-      [_circlesController removeCircleIds:circleIdsToRemove];
-    }
-    result(nil);
-  } else if ([call.method isEqualToString:@"map#isCompassEnabled"]) {
-    NSNumber* isCompassEnabled = @(_mapView.settings.compassButton);
-    result(isCompassEnabled);
-  } else if ([call.method isEqualToString:@"map#isMapToolbarEnabled"]) {
-    NSNumber* isMapToolbarEnabled = [NSNumber numberWithBool:NO];
-    result(isMapToolbarEnabled);
-  } else if ([call.method isEqualToString:@"map#getMinMaxZoomLevels"]) {
-    NSArray* zoomLevels = @[ @(_mapView.minZoom), @(_mapView.maxZoom) ];
-    result(zoomLevels);
-  } else if ([call.method isEqualToString:@"map#isZoomGesturesEnabled"]) {
-    NSNumber* isZoomGesturesEnabled = @(_mapView.settings.zoomGestures);
-    result(isZoomGesturesEnabled);
-  } else if ([call.method isEqualToString:@"map#isTiltGesturesEnabled"]) {
-    NSNumber* isTiltGesturesEnabled = @(_mapView.settings.tiltGestures);
-    result(isTiltGesturesEnabled);
-  } else if ([call.method isEqualToString:@"map#isRotateGesturesEnabled"]) {
-    NSNumber* isRotateGesturesEnabled = @(_mapView.settings.rotateGestures);
-    result(isRotateGesturesEnabled);
-  } else if ([call.method isEqualToString:@"map#isScrollGesturesEnabled"]) {
-    NSNumber* isScrollGesturesEnabled = @(_mapView.settings.scrollGestures);
-    result(isScrollGesturesEnabled);
-  } else if ([call.method isEqualToString:@"map#isMyLocationButtonEnabled"]) {
-    NSNumber* isMyLocationButtonEnabled = @(_mapView.settings.myLocationButton);
-    result(isMyLocationButtonEnabled);
-  } else if ([call.method isEqualToString:@"map#isTrafficEnabled"]) {
-    NSNumber* isTrafficEnabled = @(_mapView.trafficEnabled);
-    result(isTrafficEnabled);
-  } else if ([call.method isEqualToString:@"map#isBuildingsEnabled"]) {
-    NSNumber* isBuildingsEnabled = @(_mapView.buildingsEnabled);
-    result(isBuildingsEnabled);
-  } else if ([call.method isEqualToString:@"map#setStyle"]) {
-    NSString* mapStyle = [call arguments];
-    NSString* error = [self setMapStyle:mapStyle];
-    if (error == nil) {
-      result(@[ @(YES) ]);
-    } else {
-      result(@[ @(NO), error ]);
-    }
   } else {
     result(FlutterMethodNotImplemented);
   }
 }
 
-- (void)showAtX:(CGFloat)x Y:(CGFloat)y {
-  _mapView.frame =
-      CGRectMake(x, y, CGRectGetWidth(_mapView.frame), CGRectGetHeight(_mapView.frame));
-  _mapView.hidden = NO;
-}
 
-- (void)hide {
-  _mapView.hidden = YES;
-}
-
-- (void)animateWithCameraUpdate:(GMSCameraUpdate*)cameraUpdate {
-  [_mapView animateWithCameraUpdate:cameraUpdate];
-}
-
-- (void)moveWithCameraUpdate:(GMSCameraUpdate*)cameraUpdate {
+- (void)moveWithCameraUpdate:(NMFCameraUpdate*)cameraUpdate {
   [_mapView moveCamera:cameraUpdate];
 }
 
-- (GMSCameraPosition*)cameraPosition {
+- (NMFCameraUpdate*)cameraPosition {
   if (_trackCameraPosition) {
     return _mapView.camera;
   } else {
@@ -294,13 +154,13 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   }
 }
 
-#pragma mark - FLTGoogleMapOptionsSink methods
+#pragma mark - FLTNaverMapOptionsSink methods
 
-- (void)setCamera:(GMSCameraPosition*)camera {
+- (void)setCamera:(NMFCameraUpdate*)camera {
   _mapView.camera = camera;
 }
 
-- (void)setCameraTargetBounds:(GMSCoordinateBounds*)bounds {
+- (void)setCameraTargetBounds:(NMGLatLng*)bounds {
   _mapView.cameraTargetBounds = bounds;
 }
 
@@ -320,7 +180,7 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   _mapView.buildingsEnabled = enabled;
 }
 
-- (void)setMapType:(GMSMapViewType)mapType {
+- (void)setMapType:(NMFMapViewType)mapType {
   _mapView.mapType = mapType;
 }
 
@@ -375,13 +235,13 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
   }
 }
 
-#pragma mark - GMSMapViewDelegate methods
+#pragma mark - NMFMapViewDelegate methods
 
-- (void)mapView:(GMSMapView*)mapView willMove:(BOOL)gesture {
+- (void)mapView:(NMFMapView*)mapView willMove:(BOOL)gesture {
   [_channel invokeMethod:@"camera#onMoveStarted" arguments:@{@"isGesture" : @(gesture)}];
 }
 
-- (void)mapView:(GMSMapView*)mapView didChangeCameraPosition:(GMSCameraPosition*)position {
+- (void)mapView:(NMFMapView*)mapView didChangeCameraPosition:(NMFCameraUpdate*)position {
   if (!_cameraDidInitialSetup) {
     // We suspected a bug in the iOS Google Maps SDK caused the camera is not properly positioned at
     // initialization. https://github.com/flutter/flutter/issues/24806
@@ -390,47 +250,37 @@ static double ToDouble(NSNumber* data) { return [FLTGoogleMapJsonConversions toD
     // TODO(cyanglaz): Remove this temporary fix once the Maps SDK issue is resolved.
     // https://github.com/flutter/flutter/issues/27550
     _cameraDidInitialSetup = YES;
-    [mapView moveCamera:[GMSCameraUpdate setCamera:_mapView.camera]];
+    [mapView moveCamera:[NMFCameraUpdate setCamera:_mapView.camera]];
   }
   if (_trackCameraPosition) {
     [_channel invokeMethod:@"camera#onMove" arguments:@{@"position" : PositionToJson(position)}];
   }
 }
 
-- (void)mapView:(GMSMapView*)mapView idleAtCameraPosition:(GMSCameraPosition*)position {
+- (void)mapView:(NMFMapView*)mapView idleAtCameraPosition:(NMFCameraUpdate*)position {
   [_channel invokeMethod:@"camera#onIdle" arguments:@{}];
 }
 
-- (BOOL)mapView:(GMSMapView*)mapView didTapMarker:(GMSMarker*)marker {
+- (BOOL)mapView:(NMFMapView*)mapView didTapMarker:(NMFMarker*)marker {
   NSString* markerId = marker.userData[0];
   return [_markersController onMarkerTap:markerId];
 }
 
-- (void)mapView:(GMSMapView*)mapView didEndDraggingMarker:(GMSMarker*)marker {
+- (void)mapView:(NMFMapView*)mapView didEndDraggingMarker:(NMFMarker*)marker {
   NSString* markerId = marker.userData[0];
   [_markersController onMarkerDragEnd:markerId coordinate:marker.position];
 }
 
-- (void)mapView:(GMSMapView*)mapView didTapInfoWindowOfMarker:(GMSMarker*)marker {
+- (void)mapView:(NMFMapView*)mapView didTapInfoWindowOfMarker:(NMFMarker*)marker {
   NSString* markerId = marker.userData[0];
   [_markersController onInfoWindowTap:markerId];
 }
-- (void)mapView:(GMSMapView*)mapView didTapOverlay:(GMSOverlay*)overlay {
-  NSString* overlayId = overlay.userData[0];
-  if ([_polylinesController hasPolylineWithId:overlayId]) {
-    [_polylinesController onPolylineTap:overlayId];
-  } else if ([_polygonsController hasPolygonWithId:overlayId]) {
-    [_polygonsController onPolygonTap:overlayId];
-  } else if ([_circlesController hasCircleWithId:overlayId]) {
-    [_circlesController onCircleTap:overlayId];
-  }
-}
 
-- (void)mapView:(GMSMapView*)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate {
+- (void)mapView:(NMFMapView*)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate {
   [_channel invokeMethod:@"map#onTap" arguments:@{@"position" : LocationToJson(coordinate)}];
 }
 
-- (void)mapView:(GMSMapView*)mapView didLongPressAtCoordinate:(CLLocationCoordinate2D)coordinate {
+- (void)mapView:(NMFMapView*)mapView didLongPressAtCoordinate:(CLLocationCoordinate2D)coordinate {
   [_channel invokeMethod:@"map#onLongPress" arguments:@{@"position" : LocationToJson(coordinate)}];
 }
 
@@ -442,7 +292,7 @@ static NSArray* LocationToJson(CLLocationCoordinate2D position) {
   return @[ @(position.latitude), @(position.longitude) ];
 }
 
-static NSDictionary* PositionToJson(GMSCameraPosition* position) {
+static NSDictionary* PositionToJson(NMFCameraUpdate* position) {
   if (!position) {
     return nil;
   }
@@ -461,7 +311,7 @@ static NSDictionary* PointToJson(CGPoint point) {
   };
 }
 
-static NSDictionary* GMSCoordinateBoundsToJson(GMSCoordinateBounds* bounds) {
+static NSDictionary* NMGLatLngBoundsToJson(NMGLatLngBounds* bounds) {
   if (!bounds) {
     return nil;
   }
@@ -471,26 +321,26 @@ static NSDictionary* GMSCoordinateBoundsToJson(GMSCoordinateBounds* bounds) {
   };
 }
 
-static float ToFloat(NSNumber* data) { return [FLTGoogleMapJsonConversions toFloat:data]; }
+static float ToFloat(NSNumber* data) { return [FLTNaverMapJsonConversions toFloat:data]; }
 
-static CLLocationCoordinate2D ToLocation(NSArray* data) {
-  return [FLTGoogleMapJsonConversions toLocation:data];
+static CLLocationCoordinate2D  ToLocation(NSArray* data) {
+  return [FLTNaverMapJsonConversions toLocation:data];
 }
 
-static int ToInt(NSNumber* data) { return [FLTGoogleMapJsonConversions toInt:data]; }
+static int ToInt(NSNumber* data) { return [FLTNaverMapJsonConversions toInt:data]; }
 
-static BOOL ToBool(NSNumber* data) { return [FLTGoogleMapJsonConversions toBool:data]; }
+static BOOL ToBool(NSNumber* data) { return [FLTNaverMapJsonConversions toBool:data]; }
 
-static CGPoint ToPoint(NSArray* data) { return [FLTGoogleMapJsonConversions toPoint:data]; }
+static CGPoint ToPoint(NSArray* data) { return [FLTNaverMapJsonConversions toPoint:data]; }
 
-static GMSCameraPosition* ToCameraPosition(NSDictionary* data) {
-  return [GMSCameraPosition cameraWithTarget:ToLocation(data[@"target"])
+static NMFCameraPosition* ToCameraPosition(NSDictionary* data) {
+  return [NMFCameraPosition cameraWithTarget:ToLocation(data[@"target"])
                                         zoom:ToFloat(data[@"zoom"])
                                      bearing:ToDouble(data[@"bearing"])
                                 viewingAngle:ToDouble(data[@"tilt"])];
 }
 
-static GMSCameraPosition* ToOptionalCameraPosition(NSDictionary* json) {
+static NMFCameraPosition* ToOptionalCameraPosition(NSDictionary* json) {
   return json ? ToCameraPosition(json) : nil;
 }
 
@@ -500,49 +350,49 @@ static CGPoint ToCGPoint(NSDictionary* json) {
   return CGPointMake(x, y);
 }
 
-static GMSCoordinateBounds* ToBounds(NSArray* data) {
-  return [[GMSCoordinateBounds alloc] initWithCoordinate:ToLocation(data[0])
+static NMGBounds* ToBounds(NSArray* data) {
+  return [[NMGBounds alloc] initWithCoordinate:ToLocation(data[0])
                                               coordinate:ToLocation(data[1])];
 }
 
-static GMSCoordinateBounds* ToOptionalBounds(NSArray* data) {
+static NMGBounds* ToOptionalBounds(NSArray* data) {
   return (data[0] == [NSNull null]) ? nil : ToBounds(data[0]);
 }
 
-static GMSMapViewType ToMapViewType(NSNumber* json) {
+static NMFMapViewType ToMapViewType(NSNumber* json) {
   int value = ToInt(json);
-  return (GMSMapViewType)(value == 0 ? 5 : value);
+  return (NMFMapViewType)(value == 0 ? 5 : value);
 }
 
-static GMSCameraUpdate* ToCameraUpdate(NSArray* data) {
+static NMFCameraUpdate* ToCameraUpdate(NSArray* data) {
   NSString* update = data[0];
   if ([update isEqualToString:@"newCameraPosition"]) {
-    return [GMSCameraUpdate setCamera:ToCameraPosition(data[1])];
+    return [NMFCameraUpdate setCamera:ToCameraPosition(data[1])];
   } else if ([update isEqualToString:@"newLatLng"]) {
-    return [GMSCameraUpdate setTarget:ToLocation(data[1])];
+    return [NMFCameraUpdate setTarget:ToLocation(data[1])];
   } else if ([update isEqualToString:@"newLatLngBounds"]) {
-    return [GMSCameraUpdate fitBounds:ToBounds(data[1]) withPadding:ToDouble(data[2])];
+    return [NMFCameraUpdate fitBounds:ToBounds(data[1]) withPadding:ToDouble(data[2])];
   } else if ([update isEqualToString:@"newLatLngZoom"]) {
-    return [GMSCameraUpdate setTarget:ToLocation(data[1]) zoom:ToFloat(data[2])];
+    return [NMFCameraUpdate setTarget:ToLocation(data[1]) zoom:ToFloat(data[2])];
   } else if ([update isEqualToString:@"scrollBy"]) {
-    return [GMSCameraUpdate scrollByX:ToDouble(data[1]) Y:ToDouble(data[2])];
+    return [NMFCameraUpdate scrollByX:ToDouble(data[1]) Y:ToDouble(data[2])];
   } else if ([update isEqualToString:@"zoomBy"]) {
     if (data.count == 2) {
-      return [GMSCameraUpdate zoomBy:ToFloat(data[1])];
+      return [NMFCameraUpdate zoomBy:ToFloat(data[1])];
     } else {
-      return [GMSCameraUpdate zoomBy:ToFloat(data[1]) atPoint:ToPoint(data[2])];
+      return [NMFCameraUpdate zoomBy:ToFloat(data[1]) atPoint:ToPoint(data[2])];
     }
   } else if ([update isEqualToString:@"zoomIn"]) {
-    return [GMSCameraUpdate zoomIn];
+    return [NMFCameraUpdate zoomIn];
   } else if ([update isEqualToString:@"zoomOut"]) {
-    return [GMSCameraUpdate zoomOut];
+    return [NMFCameraUpdate zoomOut];
   } else if ([update isEqualToString:@"zoomTo"]) {
-    return [GMSCameraUpdate zoomTo:ToFloat(data[1])];
+    return [NMFCameraUpdate zoomTo:ToFloat(data[1])];
   }
   return nil;
 }
 
-static void InterpretMapOptions(NSDictionary* data, id<FLTGoogleMapOptionsSink> sink) {
+static void InterpretMapOptions(NSDictionary* data, id<FLTNaverMapOptionsSink> sink) {
   NSArray* cameraTargetBounds = data[@"cameraTargetBounds"];
   if (cameraTargetBounds) {
     [sink setCameraTargetBounds:ToOptionalBounds(cameraTargetBounds)];

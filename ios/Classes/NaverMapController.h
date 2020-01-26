@@ -28,7 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Defines map overlay controllable from Flutter.
 @interface FLTNaverMapController
-    : NSObject <GMSMapViewDelegate, FLTNaverMapOptionsSink, FlutterPlatformView>
+    : NSObject <NMFMapViewDelegate, FLTNaverMapOptionsSink, FlutterPlatformView>
 - (instancetype)initWithFrame:(CGRect)frame
                viewIdentifier:(int64_t)viewId
                     arguments:(nullable id)args
