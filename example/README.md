@@ -14,3 +14,14 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter, view our
 [online documentation](https://flutter.dev/docs), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+
+아래와 같은 방법으로 하위 폴더의 cache를 지워줍니다.
+git rm -r --cached path_to_your_folder/
+
+찾기
+find . -mindepth 2 -name '.git'
+
+제거
+find . -mindepth 2 -name '.git' -prune -exec rm -rf {} +
+
